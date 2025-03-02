@@ -26,7 +26,7 @@ class Program {
 	enum GameControl { Left, Right, Down, Rotate, None, Exit }
 	
 	static List<Piece> pieces = new List<Piece> {
-		new Piece(new List<(int, int)> { (0, 0), (1, 0), (2, 0), (3, 0) }, 'B', (3, 1)), // 1x4 Line
+		new Piece(new List<(int, int)> { (0, 0), (1, 0), (2, 0), (3, 0) }, 'B', (3, 0)), // 1x4 Line
 		new Piece(new List<(int, int)> { (0, 0), (1, 0), (0, 1), (1, 1) }, 'Y', (1, 1)), // 2x2 Square
 		new Piece(new List<(int, int)> { (0, 0), (1, 0), (2, 0), (2, 1) }, 'G', (2, 1)), // L
 		new Piece(new List<(int, int)> { (0, 0), (1, 0), (2, 0), (0, 1) }, 'B', (2, 1)), // L reverse
@@ -355,77 +355,80 @@ class Program {
 			
 			gameFieldChanged = true;
 		}
-		
-		
-		void movePiece(int moveX, int moveY) {
-			char[,] tempBoard = new char[boardSizeX, boardSizeY]; // Empty copy of the game board
-			bool lockAllPieces = false; // "Locking" refers to making the current active piece solid and not movable
-			
-			for (int y = 0; y < boardSizeY; y++) {
-				if (lockAllPieces) break;
-				for (int x = 0; x < boardSizeX; x++) {
-					if (lockAllPieces) break;
-					
-					if (board[x, y] == 'A') { // Check if the cell is an "active" cell (cell char value == A)
-						
-						/* HORIZONTAL MOVEMENT */
-						if (moveX != 0) { // Check if the user wants to move left or right
-							// if (x+moveX >= boardSizeX-1 && x-moveX < 0) break;
 
-							if (!((x - moveX) < 0)) { // Check if movements will be out of bounds (e.g. -1)
-								tempBoard[x, y] = board[x - moveX, y];
-							} else { // If movement is out of bounds, just set to empty
-								tempBoard[x, y] = ' ';	
-							}
-							tempBoard[x + moveX, y] = board[x, y];
-						}
-
-						/* VERTICAL MOVEMENT */
-						if (moveY != 0) {
-							if ((y + moveY) >= boardSizeY) { // If piece touches bottom
-								lockAllPieces = true;
-								generateNewPiece = true;
-							} else if ( board[x, y + moveY] != ' ' && board[x, y + moveY] != 'A' ) { // If piece touches other piece below it
-								lockAllPieces = true;
-								generateNewPiece = true;
-							} else { // If piece can move down 
-								// Move piece further down
-								tempBoard[x, y + moveY] = board[x, y];
-							}
-						}
-
-					}
+		void removeActivePiece() {
+			// Remove active piece
+			for (int y = activePiece.Position.Item2; y <= activePiece.Position.Item2 + activePiece.RectangularSize.Item2; y++) {
+				for (int x = activePiece.Position.Item1; x <= activePiece.Position.Item1 + activePiece.RectangularSize.Item1; x++) {
+					board[x, y] = ' ';
 				}
 			}
-			
-			// Update x + y position 
-			var pos = activePiece.Position; // Make a copy of the position
-			pos.Item1 += moveX;
-			pos.Item2 += moveY;
-			activePiece.Position = pos; // Write back the modified copy
-			
-			// Check if piecelock is enabled
-			if (lockAllPieces) { // if yes, lock moving pieces
-				for (int y = 0; y < boardSizeY; y++) {
-					for (int x = 0; x < boardSizeX; x++) {
-						if (board[x, y] == 'A') board[x, y] = 'B';
-					}
-				}
-			} else { // if no, copy tempBoard to mainBoard
-				// Copy tempBoard to mainBoard haha funny IT joke lmao
-				for (int y = 0; y < boardSizeY; y++) {
-					for (int x = 0; x < boardSizeX; x++) {
-						if (board[x, y] == 'A') board[x, y] = ' ';
-						if (tempBoard[x, y] == 'A') board[x, y] = 'A';
-					}
-				}
-			}
-			
-			gameFieldChanged = true;
-
 		}
-		
-		
+
+		void updateActivePiecePosition(int moveX, int moveY) {
+			var pos = activePiece.Position; // Make a copy of the position
+			pos.Item1 = moveX;
+			pos.Item2 = moveY;
+			activePiece.Position = pos; // Write back the modified copy
+		}
+
+		void movePiece(int moveX, int moveY) {
+			
+			// L/R movement + x-axis collision check
+			if (moveX != 0) {
+
+				// Check if piece is going out of bounds on the x axis
+				if (activePiece.Position.Item1 + activePiece.RectangularSize.Item1 + moveX >= boardSizeX || activePiece.Position.Item1 + moveX < 0) {
+					return;
+				}
+
+				// Check if location the piece wants to go is free 
+				foreach ((int row, int col) in activePiece.Structure) {
+					if (board[activePiece.Position.Item1 + row + moveX, col + activePiece.Position.Item2] != ' ' && board[activePiece.Position.Item1 + row + moveX, col + activePiece.Position.Item2] != 'A') {
+						return; // Collision detected, abort further checking
+					}
+				}
+			}
+
+			if (moveY != 0) {
+				bool freeze = false; // if true, piece will be "frozen" and a new one will spawn on top of the map
+				
+				// Check if piece is going out of bounds on y axis
+				freeze = activePiece.Position.Item2 + activePiece.RectangularSize.Item2 + moveY >= boardSizeY;
+				
+				// Check if there is a piece below
+				if (!freeze) {
+					foreach ((int row, int col) in activePiece.Structure) {
+						if (board[activePiece.Position.Item1 + row, activePiece.Position.Item2 + col + moveY] != ' ' && board[activePiece.Position.Item1 + row, activePiece.Position.Item2 + col + moveY] != 'A') {
+							freeze = true;
+							break;
+						}
+					}
+				}
+				
+				if (freeze) { // Freeze the peece
+					foreach ((int row, int col) in activePiece.Structure) {
+						if (board[activePiece.Position.Item1 + row, activePiece.Position.Item2 + col] == 'A') {
+							board[activePiece.Position.Item1 + row, activePiece.Position.Item2 + col] = activePiece.Color;
+						}
+					}
+
+					generateNewPiece = true;
+					gameFieldChanged = true;
+				
+					return;
+				}
+			}
+			
+			removeActivePiece();
+				
+			foreach ((int row, int col) in activePiece.Structure) {
+				board[ activePiece.Position.Item1 + row + moveX, activePiece.Position.Item2 + col + moveY] = 'A';
+			}
+				
+			updateActivePiecePosition(activePiece.Position.Item1 + moveX, activePiece.Position.Item2 + moveY);
+			gameFieldChanged = true;
+		}
 		
 
 		Piece selectPiece() {
@@ -438,7 +441,7 @@ class Program {
 				//board[row, col] = 'A';
 				board[row + ( (boardSizeX/2) - piece.RectangularSize.Item1 ), col] = 'A';
 			}
-			activePiece = new ActivePiece(piece, (0, 0), 0);
+			activePiece = new ActivePiece(piece, ((boardSizeX/2)-piece.RectangularSize.Item1 , 0), 0);
 		}
 		
 
