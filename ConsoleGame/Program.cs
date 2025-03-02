@@ -1,17 +1,48 @@
-﻿namespace ConsoleGame;
+﻿using System.Collections;
+
+namespace ConsoleGame;
 using Spectre.Console;
 
 class Program {
+	
+	public struct Piece {
+		public List<(int, int)> Structure { get; set; } // how the piece is formed
+		public char Color { get; set; } // a single character representing the color of the piece
+		public (int, int) RectangularSize { get; set; } // the offset from the top left to the center in x and y coordinates
+
+		public Piece(List<(int, int)> structure, char color, (int, int) rectangularSize) {
+			Structure = structure; Color = color; RectangularSize = rectangularSize;
+		}
+	}
+
+	public struct ActivePiece(Piece piece, (int, int) position, int rotation) {
+		public List<(int, int)> Structure { get; set; } = piece.Structure; // how the piece is formed
+		public char Color { get; set; } = piece.Color; // a single character representing the color of the piece
+		public (int, int) RectangularSize { get; set; } = piece.RectangularSize; // the offset from the top left to the center in x and y coordinates
+		public (int, int) Position { get; set; } = position;
+		public int Rotation { get; set; } = rotation;
+	}
+	
 	enum GameControl { Left, Right, Down, Rotate, None, Exit }
+	
+	static List<Piece> pieces = new List<Piece> {
+		new Piece(new List<(int, int)> { (0, 0), (1, 0), (2, 0), (3, 0) }, 'B', (3, 1)), // 1x4 Line
+		new Piece(new List<(int, int)> { (0, 0), (1, 0), (0, 1), (1, 1) }, 'Y', (1, 1)), // 2x2 Square
+		new Piece(new List<(int, int)> { (0, 0), (1, 0), (2, 0), (2, 1) }, 'G', (2, 1)), // L
+		new Piece(new List<(int, int)> { (0, 0), (1, 0), (2, 0), (0, 1) }, 'B', (2, 1)), // L reverse
+		new Piece(new List<(int, int)> { (0, 1), (1, 1), (2, 1), (1, 0) }, 'R', (2, 1)), // Pyramid
+		new Piece(new List<(int, int)> { (1, 0), (2, 0), (0, 1), (1, 1) }, 'Y', (2, 1)),
+		new Piece(new List<(int, int)> { (0, 0), (1, 0), (1, 1), (2, 1) }, 'G', (2, 1))
+	};
 	
 	static void Main(string[] args) {
 
 		// Original Tetris is 10x20
 		
-		/* SETTINGS */
-		int boardSizeX = 10;
-		int boardSizeY = 20;
-		const int gameTick = 300;
+		/* GAME SETTINGS */
+		const int boardSizeX = 10;
+		const int boardSizeY = 20;
+		int gameTick = 300;
 		
 		/* SCORE SYSTEM VARS */
 		int level = 1;
@@ -20,12 +51,10 @@ class Program {
 		
 		/* GAME LOGIC VARS */
 		char[,] board = new char[boardSizeX, boardSizeY];
-		List<(int, int)> activePiece = new List<(int, int)>();
-		int activePieceRotation = 0;
-		
 		var canvas = new Canvas(boardSizeX, boardSizeY);
+		ActivePiece activePiece = new ActivePiece();
 		bool gameOver = false;
-		bool generateNewBlock = true;
+		bool generateNewPiece = true;
 		bool gameFieldChanged = true;
 		
 		/* GAME TICKER VARS */
@@ -36,13 +65,14 @@ class Program {
 		initBoard();
 		
 		do {
-			if (generateNewBlock) {
-				insertBlock( selectBlock() );
-				generateNewBlock = false;
+			if (generateNewPiece) {
+				insertPiece( selectPiece() );
+				activePiece.Rotation = 0;
+				generateNewPiece = false;
 			}
 
 			if (gameFieldChanged) {
-				draw();
+				drawBoard();
 				gameFieldChanged = false;
 			}
 			
@@ -53,16 +83,16 @@ class Program {
 					Console.WriteLine("GAME EXIT");
 					return;
 				case GameControl.Left:
-					move(-1,0);
+					movePiece(-1,0);
 					break;
 				case GameControl.Down:
-					move(0,1);
+					movePiece(0,1);
 					break;
 				case GameControl.Rotate:
-					rotate();
+					rotatePiece();
 					break;
 				case GameControl.Right:
-					move(1,0);
+					movePiece(1,0);
 					break;
 			}
 			
@@ -70,7 +100,7 @@ class Program {
 			timeDiff = currentTime - lastDownMovement;
 			
 			if (timeDiff.Milliseconds > gameTick) {
-				move(0, 1);
+				movePiece(0, 1);
 				lastDownMovement = DateTime.Now;
 			}
 
@@ -92,8 +122,7 @@ class Program {
 
 			// Start from bottom Y line
 			for (int y = boardSizeY - 1; y >= 0; y--) {
-
-				int blockCount = 0;
+				int blockCount = 0; // this stores how many blocks are in a single y axis line
 				
 				for (int x = 0; x < boardSizeX; x++) { // Count the blocks in the current line
 					if (board[x, y] == 'B') blockCount++;
@@ -120,9 +149,135 @@ class Program {
 
 			return 1;
 		}
+
+		void rotatePieceNew2() {
+			
+		}
+
+		void rotatePieceNew() {
+			
+			// Invert the rectangular size of the piece
+			(int,int) invertedRectSize = (activePiece.RectangularSize.Item2, activePiece.RectangularSize.Item1);
+			
+			// Create temporary copy of the active piece, only 90 deg rotated
+			var rotatedTempActivePiece = new ActivePiece(
+				new Piece(
+					activePiece.Structure.Select(coord => (coord.Item2, -coord.Item1)).ToList(), // Invert the coordinates
+					activePiece.Color,
+					invertedRectSize
+				),
+				activePiece.Position,
+				activePiece.Rotation
+			);
+			
+			
+			// Remove current active piece - WORKING AND OPTIMIZED AF
+			for (int y = activePiece.Position.Item2; y <= activePiece.Position.Item2 + activePiece.RectangularSize.Item2; y++) {
+				for (int x = activePiece.Position.Item1; x <= activePiece.Position.Item1 + activePiece.RectangularSize.Item1; x++) {
+					board[x, y] = ' ';
+				}
+			}
+			
+			/*for (int y = rotatedTempActivePiece.Position.Item2; y <= rotatedTempActivePiece.Position.Item2 + rotatedTempActivePiece.RectangularSize.Item2; y++) {
+				for (int x = rotatedTempActivePiece.Position.Item1; x <= rotatedTempActivePiece.Position.Item1 + rotatedTempActivePiece.RectangularSize.Item1; x++) {
+					board[x, y] = rotatedTempActivePiece.Structure;
+				}
+			}*/
+			
+			
+			foreach ((int row, int col) in rotatedTempActivePiece.Structure) {
+				board[ rotatedTempActivePiece.Position.Item1 + row , rotatedTempActivePiece.Position.Item2 + col ] = 'A';
+			}
+			
+			
+			
+			
+			
+			
+
+			/*(int, int) activePieceCenter = (0,0);
+			
+			if (activePiece.Rotation == 0 && activePiece.RectangularSize.Item2 < activePiece.RectangularSize.Item1) { // is y > x
+				activePieceCenter = (
+					activePiece.RectangularSize.Item1 - 1,
+					activePiece.RectangularSize.Item2
+				);
+			} else if (activePiece.Rotation == 90 && activePiece.RectangularSize.Item2 > activePiece.RectangularSize.Item1) {
+				activePieceCenter = (
+					activePiece.RectangularSize.Item1 - 1,
+					activePiece.RectangularSize.Item2 - 1
+				);
+			} else if (activePiece.Rotation == 180 && activePiece.RectangularSize.Item2 < activePiece.RectangularSize.Item1) {
+				activePieceCenter = (
+					activePiece.RectangularSize.Item1 - 1,
+					activePiece.RectangularSize.Item2 - 1
+				);
+			} else if (activePiece.Rotation == 270 && activePiece.RectangularSize.Item2 > activePiece.RectangularSize.Item1) {
+				activePieceCenter = (
+					activePiece.RectangularSize.Item1,
+					activePiece.RectangularSize.Item2 - 1
+				);
+			}
+
+			for (int y = activePiece.Position.Item2 + activePieceCenter.Item2 - 1; y <= activePiece.Position.Item2 + activePieceCenter.Item2 + 1; y++) {
+				for (int x = activePiece.Position.Item1 + activePieceCenter.Item1 - 1; x <= activePiece.Position.Item1 + activePieceCenter.Item1 + 1; x++) {
+					
+					board[x, y] = rotatedTempActivePiece.Structure.
+					
+				}
+			}
+			
+			bool rotationSuccess = true;
+			foreach ((int row, int col) in rotatedTempActivePiece.Structure) {
+				
+
+				Console.WriteLine("X:" + (row + activePieceCenter.Item1) + ", Y:" + (col + activePieceCenter.Item2) + ")");
+				board[ activePieceCenter.Item1, col + activePieceCenter.Item2] = 'A';
+			}
+
+			return;*/
+			
+			//   =
+			// ===
+			//
+			// =
+			// =
+			// ==
+			//
+			// (int, int) activePieceCenter = (
+			// 	activePiece.RectangularSize.Item1 - 1,
+			// 	activePiece.RectangularSize.Item2
+			// );
+			//
+			//
+			// (int, int) rotatedPieceCenter = (
+			// 	activePiece.RectangularSize.Item1,
+			// 	activePiece.RectangularSize.Item2
+			// );
+			
+			if (activePiece.Rotation == 0 || activePiece.Rotation == 180) { // Piece has default given coordinates
+			} else { // piece is turned 90 or 270 degrees -> invert activePiece.RectangularSize
+			}
+			
+			
+			
+			
+			
+			
+			
+			
+		}
 		
-		void rotate() {
-			List<(int, int)> tempActivePiece = activePiece.Select(coord => (coord.Item2, -coord.Item1)).ToList();; // Create a temporary copy of the active moving piece
+		void rotatePiece() {
+			var tempActivePiece = new ActivePiece(
+				new Piece(
+					activePiece.Structure.Select(coord => (coord.Item2, -coord.Item1)).ToList(), // Invert the coordinates
+					activePiece.Color,
+					activePiece.RectangularSize
+				),
+				activePiece.Position,
+				activePiece.Rotation
+			);
 			char[,] tempBoard = new char[boardSizeX, boardSizeY]; // Create an empty, temporary copy of the board
 			(int, int)? firstBlockOfPiece = null; // this is the "anchor" where the piece rotates
 			(int, int)? lastBlockOfPiece = null;
@@ -142,7 +297,7 @@ class Program {
 				}
 			}
 			
-			
+			/*
 			for (int y = 0; y < boardSizeY; y++) {
 				// if (firstBlockOfPiece != null) break;
 				for (int x = 0; x < boardSizeX; x++) {
@@ -151,11 +306,11 @@ class Program {
 						break;
 					}
 				}
-			}
+			} */
 			
 			// Redraw rotated active pieces and check if they work
 			bool rotationSuccess = true;
-			foreach ((int row, int col) in tempActivePiece) {
+			foreach ((int row, int col) in tempActivePiece.Structure) {
 				
 				if ((row + firstBlockOfPiece.Value.Item1) < 0 || (row + firstBlockOfPiece.Value.Item1) > boardSizeX - 1) {
 					rotationSuccess = false;
@@ -188,12 +343,21 @@ class Program {
 				}
 			}
 			
+			// Replace the old activePiece with the modified copy
 			activePiece = tempActivePiece;
+			
+			// Set the piece rotation variable
+			if (activePiece.Rotation + 90 >= 360) {
+				activePiece.Rotation = 0;
+			} else {
+				activePiece.Rotation += 90;
+			}
+			
 			gameFieldChanged = true;
 		}
 		
 		
-		void move(int moveX, int moveY) {
+		void movePiece(int moveX, int moveY) {
 			char[,] tempBoard = new char[boardSizeX, boardSizeY]; // Empty copy of the game board
 			bool lockAllPieces = false; // "Locking" refers to making the current active piece solid and not movable
 			
@@ -220,10 +384,10 @@ class Program {
 						if (moveY != 0) {
 							if ((y + moveY) >= boardSizeY) { // If piece touches bottom
 								lockAllPieces = true;
-								generateNewBlock = true;
+								generateNewPiece = true;
 							} else if ( board[x, y + moveY] != ' ' && board[x, y + moveY] != 'A' ) { // If piece touches other piece below it
 								lockAllPieces = true;
-								generateNewBlock = true;
+								generateNewPiece = true;
 							} else { // If piece can move down 
 								// Move piece further down
 								tempBoard[x, y + moveY] = board[x, y];
@@ -233,6 +397,12 @@ class Program {
 					}
 				}
 			}
+			
+			// Update x + y position 
+			var pos = activePiece.Position; // Make a copy of the position
+			pos.Item1 += moveX;
+			pos.Item2 += moveY;
+			activePiece.Position = pos; // Write back the modified copy
 			
 			// Check if piecelock is enabled
 			if (lockAllPieces) { // if yes, lock moving pieces
@@ -255,7 +425,24 @@ class Program {
 
 		}
 		
-		void draw() {
+		
+		
+
+		Piece selectPiece() {
+			int pieceId = new Random().Next(0, pieces.Count);
+			return pieces[pieceId];
+		}
+
+		void insertPiece(Piece piece) {
+			foreach ((int row, int col) in piece.Structure) {
+				//board[row, col] = 'A';
+				board[row + ( (boardSizeX/2) - piece.RectangularSize.Item1 ), col] = 'A';
+			}
+			activePiece = new ActivePiece(piece, (0, 0), 0);
+		}
+		
+
+		void drawBoard() {
 			Console.Clear();
 			
 			/* BAREBONES_RENDERER */
@@ -271,7 +458,7 @@ class Program {
 				for (int x = 0; x < boardSizeX; x++) {
 					// Console.Write(board[x, y]);
 					
-					switch (board[x, y]) {
+					/*switch (board[x, y]) {
 						case ' ':
 							break;
 						case 'A':
@@ -280,8 +467,7 @@ class Program {
 							break;
 						case 'C':
 							break;
-						
-					}
+					}*/
 					
 					if (board[x, y] == ' ') {
 						canvas.SetPixel(x, y, Color.White);	
@@ -289,7 +475,13 @@ class Program {
 						canvas.SetPixel(x, y, Color.Red);
 					} else if (board[x, y] == 'B') {
 						canvas.SetPixel(x, y, Color.Blue);
-					}
+					} else if (board[x, y] == 'Y') {
+						canvas.SetPixel(x, y, Color.Yellow);
+					} else if (board[x, y] == 'G') {
+						canvas.SetPixel(x, y, Color.Green);
+					} else if (board[x, y] == 'R') {
+						canvas.SetPixel(x, y, Color.Red);
+					} 
 					
 				}
 				// Console.WriteLine();
@@ -298,42 +490,18 @@ class Program {
 			Console.WriteLine("Points: " + points);
 			Console.WriteLine("Level: " + level);
 			Console.WriteLine("Lines: " + linesCleared);
-		}
-		
-
-		List<(int, int)> selectBlock() {
-			// Structure = how the piece is formed
-			// Color = a single character representing the color of the piece
-			// CenterOffset = the offset from the top left to the center in x and y coordinates
-			/* var blocks = new List<(List<(int, int)> Structure, char Color, (int, int) CenterOffset)>();
-			blocks.Add( (new List<(int, int)> { (0,0), (1,0), (2,0), (3,0) }, 'A', (1,1)) ); // 1x4 Line
-			blocks.Add( (new List<(int, int)> { (0,0), (1,0), (0,1), (1,1) }, 'B', (1,1)) ); // 2x2 Square
-			blocks.Add( (new List<(int, int)> { (0,0), (1,0), (2,0), (2,1) }, 'C', (1,1)) ); // L
-			blocks.Add( (new List<(int, int)> { (0,0), (1,0), (2,0), (0,1) }, 'D', (1,1)) ); // L reverse
-			blocks.Add( (new List<(int, int)> { (0,1), (1,1), (2,1), (1,0) }, 'E', (1,1)) ); // Pyramid
-			blocks.Add( (new List<(int, int)> { (1,0), (2,0), (0,1), (1,1) }, 'F', (1,1)) ); 
-			blocks.Add( (new List<(int, int)> { (0,0), (1,0), (1,1), (2,1) }, 'G', (1,1)) ); */ 
-			
-			List<List<(int, int)>> blocks = new List<List<(int, int)>>();
-			blocks.Add(new List<(int, int)> { (0,0), (1,0), (2,0), (3,0) }); // 1x4 Line
-			blocks.Add(new List<(int, int)> { (0,0), (1,0), (0,1), (1,1) }); // 2x2 Square
-			blocks.Add(new List<(int, int)> { (0,0), (1,0), (2,0), (2,1) }); // L
-			blocks.Add(new List<(int, int)> { (0,0), (1,0), (2,0), (0,1) }); // L reverse
-			blocks.Add(new List<(int, int)> { (0,1), (1,1), (2,1), (1,0) }); // Pyramid
-			blocks.Add(new List<(int, int)> { (1,0), (2,0), (0,1), (1,1) }); 
-			blocks.Add(new List<(int, int)> { (0,0), (1,0), (1,1), (2,1) });
-				 
-			int blockId = new Random().Next(0, blocks.Count);
-			activePiece = blocks[blockId];
-			return blocks[blockId];
+			Console.WriteLine("ActivePieceRotation: " + activePiece.Rotation);
+			Console.WriteLine("ActivePiecePosition: (X:" + activePiece.Position.Item1 + ", Y:" + activePiece.Position.Item2 + ")");
 		}
 
-		void insertBlock(List<(int, int)> piece) {
-			foreach ((int row, int col) in piece) {
-				board[row, col] = 'A';
+		void initBoard() {
+			for (int y = 0; y < boardSizeY; y++) {
+				for (int x = 0; x < boardSizeX; x++) {
+					board[x, y] = ' ';
+				}
 			}
 		}
-
+		
 		GameControl readUserInput() {
 			ConsoleKeyInfo input;
 
@@ -342,18 +510,15 @@ class Program {
 				
 				switch (input.Key) {
 					case ConsoleKey.LeftArrow:
-						// Console.WriteLine("Left");
 						return GameControl.Left;
 						break;
 					case ConsoleKey.RightArrow:
-						// Console.WriteLine("Right");
 						return GameControl.Right;
 						break;
 					case ConsoleKey.DownArrow:
 						return GameControl.Down;
 						break;
 					case ConsoleKey.Spacebar:
-						// Console.WriteLine("Spacebar");
 						return GameControl.Rotate;
 						break;
 					case ConsoleKey.Q:
@@ -363,14 +528,6 @@ class Program {
 			}
 
 			return GameControl.None;
-		}
-
-		void initBoard() {
-			for (int y = 0; y < boardSizeY; y++) {
-				for (int x = 0; x < boardSizeX; x++) {
-					board[x, y] = ' ';
-				}
-			}
 		}
 		
 	}
